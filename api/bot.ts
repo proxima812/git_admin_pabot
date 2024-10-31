@@ -1,13 +1,19 @@
-import { Bot, webhookCallback } from "grammy"
 import axios from "axios"
 import dotenv from "dotenv"
+import { Bot, webhookCallback } from "grammy"
 
 dotenv.config()
 
-const bot = new Bot(process.env.BOT_TOKEN)
+const token = process.env.BOT_TOKEN
+if (!token) throw new Error("BOT_TOKEN is unset")
+const bot = new Bot(token)
 
 // Для хранения данных о постах во время редактирования
 let userSessions = {}
+
+
+// Пример команды
+bot.command("start", ctx => ctx.reply("Привет! Я бот."));
 
 // Функция для получения списка файлов из папки `posts` через GitHub API
 async function getMarkdownFiles() {
