@@ -22,7 +22,6 @@ async function getMarkdownFiles() {
 }
 
 // Функция для чтения и парсинга содержимого .md файла через GitHub API
-// Функция для чтения и парсинга содержимого .md файла через GitHub API
 async function fetchMarkdownFileContent(fileName) {
 	const response = await axios.get(
 		`https://api.github.com/repos/${process.env.GITHUB_REPO}/contents/src/content/posts/${fileName}`,
@@ -85,47 +84,64 @@ bot.command("new_post", async ctx => {
 	await ctx.reply("Введите заголовок для нового поста:")
 })
 
-// Обработчик ввода данных для нового поста
+// Обработчик ввода данных для нового поста или обновления поста
 bot.on("message:text", async ctx => {
 	const session = userSessions[ctx.chat.id]
-	if (!session || !session.isNewPost) return
 
-	switch (session.step) {
-		case "title":
-			session.post.title = ctx.message.text
-			session.step = "description"
-			await ctx.reply("Введите описание для нового поста:")
-			break
-		case "description":
-			session.post.description = ctx.message.text
-			session.step = "datePublished"
-			await ctx.reply("Введите дату публикации (например, 'сегодня' или '31 октября'):")
-			break
-		case "datePublished":
-			const inputDate = ctx.message.text.toLowerCase()
-			if (inputDate === "сегодня") {
-				const today = new Date().toISOString()
-				session.post.datePublished = today
-			} else {
-				// Преобразование пользовательского ввода даты в ISO формат
-				const formattedDate = new Date(inputDate).toISOString()
-				session.post.datePublished = formattedDate
-			}
-			session.step = "content"
-			await ctx.reply("Введите контент для нового поста в формате Markdown:")
-			break
-		case "content":
-			session.post.content = ctx.message.text
-			await ctx.reply(
-				"Все данные собраны. Нажмите 'Добавить', чтобы создать пост, или 'Отмена' для выхода.",
-				{
-					reply_markup: new InlineKeyboard()
-						.text("Добавить", "create_post")
-						.row()
-						.text("Отмена", "cancel"),
-				},
-			)
-			break
+	if (session && session.isNewPost) {
+		switch (session.step) {
+			case "title":
+				session.post.title = ctx.message.text
+				session.step = "description"
+				await ctx.reply("Введите описание для нового поста:")
+				break
+			case "description":
+				session.post.description = ctx.message.text
+				session.step = "datePublished"
+				await ctx.reply("Введите дату публикации (например, 'сегодня' или '31 октября'):")
+				break
+			case "datePublished":
+				const inputDate = ctx.message.text.toLowerCase()
+				if (inputDate === "сегодня") {
+					const today = new Date().toISOString()
+					session.post.datePublished = today
+				} else {
+					// Преобразование пользовательского ввода даты в ISO формат
+					const formattedDate = new Date(inputDate).toISOString()
+					session.post.datePublished = formattedDate
+				}
+				session.step = "content"
+				await ctx.reply("Введите контент для нового поста в формате Markdown:")
+				break
+			case "content":
+				session.post.content = ctx.message.text
+				await ctx.reply(
+					"Все данные собраны. Нажмите 'Добавить', чтобы создать пост, или 'Отмена' для выхода.",
+					{
+						reply_markup: new InlineKeyboard()
+							.text("Добавить", "create_post")
+							.row()
+							.text("Отмена", "cancel"),
+					},
+				)
+				break
+		}
+	} else if (session && session.editingAttribute) {
+		session.post[session.editingAttribute] = ctx.message.text
+		await ctx.reply("Изменение сохранено. Что-то еще?", {
+			reply_markup: new InlineKeyboard()
+				.text("Изменить title", "edit_title")
+				.row()
+				.text("Изменить description", "edit_description")
+				.row()
+				.text("Изменить datePublished", "edit_datePublished")
+				.row()
+				.text("Изменить контент", "edit_content")
+				.row()
+				.text("Добавить", "add")
+				.text("Отправить изменения", "commit"),
+		})
+		session.editingAttribute = null
 	}
 })
 
@@ -182,9 +198,9 @@ bot.command("posts", async ctx => {
 	const files = await getMarkdownFiles()
 	const keyboard = new InlineKeyboard()
 
-	files.forEach(file => keyboard.text(file.name).row())
+	files.forEach(file => keyboard.text(file.name, file.name).row())
 
-	ctx.reply("Посты сайта АП:", { reply_markup: keyboard })
+	await ctx.reply("Посты сайта АП:", { reply_markup: keyboard })
 })
 
 // Обработчик нажатий на кнопки выбора файла
@@ -229,29 +245,6 @@ bot.callbackQuery("edit_title", ctx => updateAttribute(ctx, "title"))
 bot.callbackQuery("edit_description", ctx => updateAttribute(ctx, "description"))
 bot.callbackQuery("edit_datePublished", ctx => updateAttribute(ctx, "datePublished"))
 bot.callbackQuery("edit_content", ctx => updateAttribute(ctx, "content"))
-
-// Сохранение изменений пользователя
-bot.on("message:text", async ctx => {
-	const session = userSessions[ctx.chat.id]
-	if (!session || !session.editingAttribute) return
-
-	session.post[session.editingAttribute] = ctx.message.text
-	await ctx.reply("Изменение сохранено. Что-то еще?", {
-		reply_markup: new InlineKeyboard()
-			.text("Изменить title", "edit_title")
-			.row()
-			.text("Изменить description", "edit_description")
-			.row()
-			.text("Изменить datePublished", "edit_datePublished")
-			.row()
-			.text("Изменить контент", "edit_content")
-			.row()
-			.text("Добавить", "add")
-			.text("Отправить изменения", "commit"),
-	})
-
-	session.editingAttribute = null
-})
 
 // Команда для отправки изменений в GitHub
 bot.callbackQuery("commit", async ctx => {
