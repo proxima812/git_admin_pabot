@@ -22,29 +22,34 @@ async function getMarkdownFiles() {
 }
 
 // Функция для чтения и парсинга содержимого .md файла через GitHub API
+// Функция для чтения и парсинга содержимого .md файла через GitHub API
 async function fetchMarkdownFileContent(fileName) {
-	const response = await axios.get(
-		`https://api.github.com/repos/${process.env.GITHUB_REPO}/contents/src/content/posts/${fileName}`,
-		{
-			headers: {
-				Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-				Accept: "application/vnd.github.v3+json",
-			},
-		},
-	)
+  const response = await axios.get(
+    `https://api.github.com/repos/${process.env.GITHUB_REPO}/contents/src/content/posts/${fileName}`,
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+        Accept: "application/vnd.github.v3+json",
+      },
+    }
+  );
 
-	const contentBuffer = Buffer.from(response.data.content, "base64").toString("utf8")
-	const [metadata, postContent] = contentBuffer.split("---\n\n").map(part => part.trim())
-	const metadataLines = metadata.split("\n")
-	const post = { content: postContent }
+  const contentBuffer = Buffer.from(response.data.content, "base64").toString("utf8");
+  const [metadata, postContent] = contentBuffer.split("---\n\n").map(part => part.trim());
+  const metadataLines = metadata.split("\n");
+  const post = { content: postContent };
 
-	metadataLines.forEach(line => {
-		const [key, value] = line.split(": ")
-		post[key.trim()] = value.replace(/["]/g, "")
-	})
+  // Обрабатываем каждую строку метаданных
+  metadataLines.forEach(line => {
+    const [key, value] = line.split(": ");
+    // Если значение существует, удаляем кавычки и добавляем в объект post
+    if (value) {
+      post[key.trim()] = value.replace(/["]/g, "");
+    }
+  });
 
-	post.sha = response.data.sha // Сохраняем SHA для обновления файла
-	return post
+  post.sha = response.data.sha; // Сохраняем SHA для обновления файла
+  return post;
 }
 
 // Функция для сохранения обновленного поста на GitHub
@@ -73,6 +78,99 @@ datePublished: "${post.datePublished}"
 		},
 	)
 }
+
+// Команда для начала создания нового поста
+bot.command("new_post", async (ctx) => {
+  userSessions[ctx.chat.id] = { post: {}, isNewPost: true, step: "title" };
+  await ctx.reply("Введите заголовок для нового поста:");
+});
+
+// Обработчик ввода данных для нового поста
+bot.on("message:text", async (ctx) => {
+  const session = userSessions[ctx.chat.id];
+  if (!session || !session.isNewPost) return;
+
+  switch (session.step) {
+    case "title":
+      session.post.title = ctx.message.text;
+      session.step = "description";
+      await ctx.reply("Введите описание для нового поста:");
+      break;
+    case "description":
+      session.post.description = ctx.message.text;
+      session.step = "datePublished";
+      await ctx.reply("Введите дату публикации (например, 'сегодня' или '31 октября'):");
+      break;
+    case "datePublished":
+      const inputDate = ctx.message.text.toLowerCase();
+      if (inputDate === "сегодня") {
+        const today = new Date().toISOString();
+        session.post.datePublished = today;
+      } else {
+        // Преобразование пользовательского ввода даты в ISO формат
+        const formattedDate = new Date(inputDate).toISOString();
+        session.post.datePublished = formattedDate;
+      }
+      session.step = "content";
+      await ctx.reply("Введите контент для нового поста в формате Markdown:");
+      break;
+    case "content":
+      session.post.content = ctx.message.text;
+      await ctx.reply("Все данные собраны. Нажмите 'Добавить', чтобы создать пост, или 'Отмена' для выхода.", {
+        reply_markup: new InlineKeyboard()
+          .text("Добавить", "create_post").row()
+          .text("Отмена", "cancel"),
+      });
+      break;
+  }
+});
+
+// Обработчик создания нового поста
+bot.callbackQuery("create_post", async (ctx) => {
+  const session = userSessions[ctx.chat.id];
+  if (!session || !session.isNewPost) return;
+
+  const post = session.post;
+  const fileName = `${post.title.replace(/ /g, "_").toLowerCase()}.md`;
+
+  const content = `---
+title: "${post.title}"
+description: "${post.description}"
+datePublished: "${post.datePublished}"
+---
+
+${post.content}`;
+
+  try {
+    // Запрос на создание нового файла в GitHub
+    await axios.put(
+      `https://api.github.com/repos/${process.env.GITHUB_REPO}/contents/src/content/posts/${fileName}`,
+      {
+        message: `Добавлен новый пост: ${post.title}`,
+        content: Buffer.from(content).toString("base64"),
+        branch: process.env.GITHUB_BRANCH,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+          Accept: "application/vnd.github.v3+json",
+        },
+      }
+    );
+    await ctx.reply("Новый пост успешно добавлен в репозиторий!");
+    delete userSessions[ctx.chat.id];
+  } catch (error) {
+    console.error("Ошибка при добавлении нового поста:", error);
+    await ctx.reply("Произошла ошибка при добавлении поста. Пожалуйста, попробуйте еще раз.");
+  }
+});
+
+// Отмена добавления нового поста
+bot.callbackQuery("cancel", (ctx) => {
+  delete userSessions[ctx.chat.id];
+  ctx.reply("Создание нового поста отменено.");
+});
+
 
 // Команда для отображения списка постов
 bot.command("posts", async ctx => {
