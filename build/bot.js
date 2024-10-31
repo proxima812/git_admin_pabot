@@ -4,12 +4,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 require("dotenv").config();
-const grammy_1 = require("grammy");
 const axios_1 = __importDefault(require("axios"));
-// dotenv.config()
-const bot = new grammy_1.Bot(process.env.BOT_TOKEN);
+const grammy_1 = require("grammy");
+const token = process.env.BOT_TOKEN;
+if (!token)
+    throw new Error("BOT_TOKEN is unset");
+const bot = new grammy_1.Bot(token);
 // Для хранения данных о постах во время редактирования
 let userSessions = {};
+// Пример команды
+bot.command("start", ctx => ctx.reply("Привет! Я бот."));
 // Функция для получения списка файлов из папки `posts` через GitHub API
 async function getMarkdownFiles() {
     const response = await axios_1.default.get(`https://api.github.com/repos/${process.env.GITHUB_REPO}/contents/src/content/posts`, {
