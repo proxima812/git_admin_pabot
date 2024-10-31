@@ -1,6 +1,8 @@
-const { Bot, InlineKeyboard } = require("grammy")
-const axios = require("axios")
-require("dotenv").config()
+import { Bot, webhookCallback } from "grammy"
+import axios from "axios"
+import dotenv from "dotenv"
+
+dotenv.config()
 
 const bot = new Bot(process.env.BOT_TOKEN)
 
@@ -41,7 +43,6 @@ async function fetchMarkdownFileContent(fileName) {
 	// Обрабатываем каждую строку метаданных
 	metadataLines.forEach(line => {
 		const [key, value] = line.split(": ")
-		// Если значение существует, удаляем кавычки и добавляем в объект post
 		if (value) {
 			post[key.trim()] = value.replace(/["]/g, "")
 		}
@@ -84,11 +85,12 @@ bot.command("new_post", async ctx => {
 	await ctx.reply("Введите заголовок для нового поста:")
 })
 
-// Обработчик ввода данных для нового поста или обновления поста
+// Обработчик ввода данных для нового поста
 bot.on("message:text", async ctx => {
 	const session = userSessions[ctx.chat.id]
+	if (!session) return
 
-	if (session && session.isNewPost) {
+	if (session.isNewPost) {
 		switch (session.step) {
 			case "title":
 				session.post.title = ctx.message.text
@@ -106,7 +108,6 @@ bot.on("message:text", async ctx => {
 					const today = new Date().toISOString()
 					session.post.datePublished = today
 				} else {
-					// Преобразование пользовательского ввода даты в ISO формат
 					const formattedDate = new Date(inputDate).toISOString()
 					session.post.datePublished = formattedDate
 				}
@@ -126,22 +127,10 @@ bot.on("message:text", async ctx => {
 				)
 				break
 		}
-	} else if (session && session.editingAttribute) {
-		session.post[session.editingAttribute] = ctx.message.text
-		await ctx.reply("Изменение сохранено. Что-то еще?", {
-			reply_markup: new InlineKeyboard()
-				.text("Изменить title", "edit_title")
-				.row()
-				.text("Изменить description", "edit_description")
-				.row()
-				.text("Изменить datePublished", "edit_datePublished")
-				.row()
-				.text("Изменить контент", "edit_content")
-				.row()
-				.text("Добавить", "add")
-				.text("Отправить изменения", "commit"),
-		})
-		session.editingAttribute = null
+	} else {
+		await ctx.reply(
+			"Команда не распознана. Используйте /new_post для создания нового поста.",
+		)
 	}
 })
 
@@ -162,7 +151,6 @@ datePublished: "${post.datePublished}"
 ${post.content}`
 
 	try {
-		// Запрос на создание нового файла в GitHub
 		await axios.put(
 			`https://api.github.com/repos/${process.env.GITHUB_REPO}/contents/src/content/posts/${fileName}`,
 			{
@@ -246,27 +234,46 @@ bot.callbackQuery("edit_description", ctx => updateAttribute(ctx, "description")
 bot.callbackQuery("edit_datePublished", ctx => updateAttribute(ctx, "datePublished"))
 bot.callbackQuery("edit_content", ctx => updateAttribute(ctx, "content"))
 
+// Сохранение изменений пользователя
+bot.on("message:text", async ctx => {
+	const session = userSessions[ctx.chat.id]
+	if (!session || !session.editingAttribute) return
+
+	session.post[session.editingAttribute] = ctx.message.text
+	await ctx.reply("Изменение сохранено. Что-то еще?", {
+		reply_markup: new InlineKeyboard()
+			.text("Изменить title", "edit_title")
+			.row()
+			.text("Изменить description", "edit_description")
+			.row()
+			.text("Изменить datePublished", "edit_datePublished")
+			.row()
+			.text("Изменить контент", "edit_content")
+			.row()
+			.text("Добавить", "add")
+			.text("Отправить изменения", "commit"),
+	})
+
+	session.editingAttribute = null
+})
+
 // Команда для отправки изменений в GitHub
 bot.callbackQuery("commit", async ctx => {
 	const session = userSessions[ctx.chat.id]
-	if (!session) return ctx.reply("Сначала выберите пост с помощью команды /posts.")
+	if (!session) return
 
-	const { fileName, post } = session
+	const post = session.post
+	const fileName = session.fileName
 
 	try {
 		await saveMarkdownFile(fileName, post)
+		await ctx.reply("Изменения успешно отправлены в репозиторий!")
 		delete userSessions[ctx.chat.id]
-		await ctx.reply("Изменения успешно отправлены в GitHub!")
 	} catch (error) {
-		console.error(error)
-		ctx.reply("Произошла ошибка при отправке изменений в GitHub.")
+		console.error("Ошибка при отправке изменений:", error)
+		await ctx.reply("Произошла ошибка при отправке изменений.")
 	}
 })
 
-// Запуск бота
-bot.start({
-	onWebhook: {
-		domain: `https://${process.env.VERCEL_URL}`,
-		secretToken: process.env.WEBHOOK_SECRET,
-	},
-})
+// Экспортируем вебхук для Vercel
+export default webhookCallback(bot, "std/http")
