@@ -1,8 +1,9 @@
+require("dotenv").config()
 import { Bot, webhookCallback } from "grammy"
 import axios from "axios"
 import dotenv from "dotenv"
 
-dotenv.config()
+// dotenv.config()
 
 const bot = new Bot(process.env.BOT_TOKEN)
 
